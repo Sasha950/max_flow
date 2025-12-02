@@ -10,34 +10,10 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include "graph.h"
 
 using namespace std;
 using namespace chrono;
-
-// ============ FORWARD DECLARATIONS ============
-class Node;
-
-// ============ EDGE CLASS (FIRST) ============
-class Edge {
-public:
-    int weight;                 // edge weight/capacity
-    Node* adjacentNode;         // adjacent node
-
-    Edge(int w, Node* node);
-};
-
-// ============ NODE CLASS (SECOND) ============
-class Node {
-public:
-    int id;                                     // vertex ID
-    std::vector<Edge*> edges;                   // outgoing edges list
-    std::unordered_map<Node*, Edge*> parents;   // incoming edges list
-
-    Node(int nodeId) : id(nodeId) {}
-};
-
-// ============ EDGE CONSTRUCTOR IMPLEMENTATION ============
-Edge::Edge(int w, Node* node) : weight(w), adjacentNode(node) {}
 
 // ============ EDMONDS-KARP IMPLEMENTATION ============
 int edmondsKarp(unordered_map<int, Node*>& graph, int sourceId, int sinkId, bool verbose = false) {
