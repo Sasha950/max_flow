@@ -1,4 +1,4 @@
-// test_edmonds_karp_corrected.cpp - COMPLETE TEST SUITE WITH BUILT-IN GRAPHS
+#include "graph.h"
 #include <iostream>
 #include <unordered_map>
 #include <vector>
@@ -7,38 +7,26 @@
 #include <climits>
 #include <chrono>
 #include <iomanip>
-#include <string>
-#include <memory>
-#include <functional>
-#include "graph.h"
 
 using namespace std;
+using namespace chrono;
 
 // ============ EDMONDS-KARP IMPLEMENTATION ============
-int edmondsKarp(unordered_map<int, Node*>& graph, int sourceId, int sinkId, bool verbose = false) {
-
+int edmondsKarp(unordered_map<int, Node*>& graph, int sourceId, int sinkId, bool verbose) {
     // Basic validations
     if (graph.empty()) {
-        cout << "[ERROR] Empty graph" << endl;
-        cout << "Maximum flow: 0" << endl << endl;
         return 0;
     }
 
     if (graph.find(sourceId) == graph.end()) {
-        cout << "[ERROR] Source vertex " << sourceId << " not found" << endl;
-        cout << "Maximum flow: 0" << endl << endl;
         return 0;
     }
 
     if (graph.find(sinkId) == graph.end()) {
-        cout << "[ERROR] Destination vertex " << sinkId << " not found" << endl;
-        cout << "Maximum flow: 0" << endl << endl;
         return 0;
     }
 
     if (sourceId == sinkId) {
-        cout << "[ERROR] Source and destination are the same" << endl;
-        cout << "Maximum flow: 0" << endl << endl;
         return 0;
     }
 
@@ -51,13 +39,13 @@ int edmondsKarp(unordered_map<int, Node*>& graph, int sourceId, int sinkId, bool
         int capacity;
         int flow;
         FlowEdge* reverse;
-        
+
         FlowEdge(Node* t, int c) : to(t), capacity(c), flow(0), reverse(nullptr) {}
-        
+
         int residualCapacity() const {
             return capacity - flow;
         }
-        
+
         void augment(int amount) {
             flow += amount;
             if (reverse) {
@@ -68,7 +56,7 @@ int edmondsKarp(unordered_map<int, Node*>& graph, int sourceId, int sinkId, bool
 
     // Build flow network
     unordered_map<Node*, vector<FlowEdge*>> flowNetwork;
-    
+
     // Initialize for all vertices
     for (auto& pair : graph) {
         flowNetwork[pair.second] = vector<FlowEdge*>();
@@ -77,18 +65,18 @@ int edmondsKarp(unordered_map<int, Node*>& graph, int sourceId, int sinkId, bool
     // Convert your structure to flow network
     for (auto& pair : graph) {
         Node* fromNode = pair.second;
-        
+
         for (Edge* edge : fromNode->edges) {
             Node* toNode = edge->adjacentNode;
             int capacity = edge->weight;
-            
+
             // Forward edge
             FlowEdge* forward = new FlowEdge(toNode, capacity);
             FlowEdge* backward = new FlowEdge(fromNode, 0);
-            
+
             forward->reverse = backward;
             backward->reverse = forward;
-            
+
             flowNetwork[fromNode].push_back(forward);
             flowNetwork[toNode].push_back(backward);
         }
@@ -97,31 +85,31 @@ int edmondsKarp(unordered_map<int, Node*>& graph, int sourceId, int sinkId, bool
     // Edmonds-Karp algorithm
     int maxFlow = 0;
     int iterations = 0;
-    
+
     while (true) {
         // BFS to find augmenting path
         unordered_map<Node*, Node*> parent;
         unordered_map<Node*, FlowEdge*> path;
-        
+
         queue<Node*> q;
         q.push(source);
         parent[source] = source;
-        
+
         bool foundPath = false;
-        
+
         while (!q.empty() && !foundPath) {
             Node* u = q.front();
             q.pop();
-            
+
             for (FlowEdge* edge : flowNetwork[u]) {
                 Node* v = edge->to;
                 int residual = edge->residualCapacity();
-                
+
                 if (residual > 0 && parent.find(v) == parent.end()) {
                     parent[v] = u;
                     path[v] = edge;
                     q.push(v);
-                    
+
                     if (v == sink) {
                         foundPath = true;
                         break;
@@ -129,48 +117,40 @@ int edmondsKarp(unordered_map<int, Node*>& graph, int sourceId, int sinkId, bool
                 }
             }
         }
-        
+
         if (!foundPath) {
             break; // No more augmenting paths
         }
-        
+
         iterations++;
-        
+
         // Find bottleneck
         int bottleneck = INT_MAX;
         for (Node* v = sink; v != source; v = parent[v]) {
             FlowEdge* edge = path[v];
             bottleneck = min(bottleneck, edge->residualCapacity());
         }
-        
+
         // Augment flow along the path
         for (Node* v = sink; v != source; v = parent[v]) {
             FlowEdge* edge = path[v];
             edge->augment(bottleneck);
         }
-        
+
         maxFlow += bottleneck;
-        
-        if (verbose && iterations <= 5) {
-            cout << "Iteration " << iterations << ": +" << bottleneck 
-                 << " (total: " << maxFlow << ")" << endl;
-        }
-        
+
         // Safety to prevent infinite loops
-        if (iterations > vertexCount * vertexCount) {
-            if (verbose) {
-                cout << "[WARNING] Safety stop after " << iterations << " iterations" << endl;
-            }
+        if (iterations > graph.size() * graph.size()) {
             break;
         }
     }
-    
+
     // Cleanup
     for (auto& pair : flowNetwork) {
         for (FlowEdge* edge : pair.second) {
             delete edge;
         }
     }
-    
+
     return maxFlow;
 }
