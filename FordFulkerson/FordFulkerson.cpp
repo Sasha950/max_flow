@@ -7,14 +7,6 @@
 #include <clocale>
 #include "graph.h"
 
-struct Edge
-{
-    int weight;
-    Node* adjacentNode;
-
-    Edge(int w, Node* node) : weight(w), adjacentNode(node) {}
-};
-
 struct ResidualEdge {
     Node* from;
     Node* to;
