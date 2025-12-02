@@ -5,18 +5,7 @@
 #include <algorithm>
 #include <climits>
 #include <clocale>
-
-class Node;
-class Edge;
-
-struct Node
-{
-    int id;
-    std::vector<Edge*> edges;
-    std::unordered_map<Node*, Edge*> parents;
-
-    Node(int nodeId) : id(nodeId) {}
-};
+#include "graph.h"
 
 struct Edge
 {
