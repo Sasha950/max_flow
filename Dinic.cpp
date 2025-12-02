@@ -1,4 +1,4 @@
-﻿#include <iostream>
+#include <iostream>
 #include <unordered_map>
 #include <vector>
 #include <queue>
@@ -7,51 +7,31 @@
 #include <clocale>
 #include <functional>
 
-class Node;
-class Edge;
-
-struct Node
-{
-    int id;
-    std::vector<Edge*> edges;
-    std::unordered_map<Node*, Edge*> parents;
-
-    Node(int nodeId) : id(nodeId) {}
-};
-
-struct Edge
-{
-    int weight;
-    Node* adjacentNode;
-
-    Edge(int w, Node* node) : weight(w), adjacentNode(node) {}
-};
-
 // Структура для остаточного ребра
 struct ResidualEdge {
     int capacity;     // остаточная пропускная способность
-    Edge* originalEdge; // ссылка на оригинальное ребро
-    ResidualEdge* reverse; // указатель на обратное ребро
+    int to;           // вершина назначения
+    int rev;          // индекс обратного ребра в списке смежности
 
-    ResidualEdge(int cap = 0, Edge* orig = nullptr, ResidualEdge* rev = nullptr)
-        : capacity(cap), originalEdge(orig), reverse(rev) {
+    ResidualEdge(int cap = 0, int toNode = -1, int reverseIndex = -1)
+        : capacity(cap), to(toNode), rev(reverseIndex) {
     }
 };
 
 // Вспомогательная функция для подсчета ребер
-int countEdges(std::unordered_map<int, Node*>& graph) {
+int countEdges(std::unordered_map<int, std::vector<ResidualEdge>>& graph) {
     int edgeCount = 0;
     for (auto& pair : graph) {
-        edgeCount += pair.second->edges.size();
+        edgeCount += pair.second.size();
     }
     return edgeCount;
 }
 
 // Алгоритм Диница
-int dinic(std::unordered_map<int, Node*>& graph, int sourceId, int sinkId) {
+int dinic(std::unordered_map<int, std::vector<ResidualEdge>>& graph, int sourceId, int sinkId) {
     // Вывод характеристик графа как у коллеги
     int vertexCount = graph.size();
-    int edgeCount = countEdges(graph);
+    int edgeCount = countEdges(graph) / 2; // делим на 2, так как каждое ребро учитывается дважды
 
     std::cout << "Характеристики графа:" << std::endl;
     std::cout << "    Вершин: " << vertexCount << std::endl;
@@ -83,149 +63,72 @@ int dinic(std::unordered_map<int, Node*>& graph, int sourceId, int sinkId) {
         return 0;
     }
 
-    Node* source = graph[sourceId];
-    Node* sink = graph[sinkId];
-
-    // 1. Создаём остаточную сеть
-    std::unordered_map<Node*, std::vector<ResidualEdge*>> residualGraph;
-
-    // Инициализируем для всех вершин
-    for (auto& pair : graph) {
-        residualGraph[pair.second] = std::vector<ResidualEdge*>();
-    }
-
-    // Заполняем остаточную сеть
-    for (auto& pair : graph) {
-        Node* u = pair.second;
-
-        for (Edge* edge : u->edges) {
-            Node* v = edge->adjacentNode;
-
-            // Прямое и обратное ребро
-            ResidualEdge* forward = new ResidualEdge(edge->weight, edge);
-            ResidualEdge* backward = new ResidualEdge(0, nullptr);
-
-            // Связываем их
-            forward->reverse = backward;
-            backward->reverse = forward;
-
-            // Добавляем в остаточную сеть
-            residualGraph[u].push_back(forward);
-            residualGraph[v].push_back(backward);
-        }
-    }
-
     int maxFlow = 0;
 
     // Для уровней
-    std::unordered_map<Node*, int> level;
+    std::unordered_map<int, int> level;
 
     // Для указателей
-    std::unordered_map<Node*, int> ptr;
+    std::unordered_map<int, int> ptr;
 
     // 2. BFS для построения слоистой сети
     auto bfs = [&]() -> bool {
         // Очищаем уровни
         for (auto& pair : graph) {
-            level[pair.second] = -1;
+            level[pair.first] = -1;
         }
 
-        std::queue<Node*> q;
-        q.push(source);
-        level[source] = 0;
+        std::queue<int> q;
+        q.push(sourceId);
+        level[sourceId] = 0;
 
         while (!q.empty()) {
-            Node* u = q.front();
+            int u = q.front();
             q.pop();
 
-            for (ResidualEdge* re : residualGraph[u]) {
-                // Находим вершину назначения
-                Node* v = nullptr;
-                if (re->originalEdge) {
-                    v = re->originalEdge->adjacentNode;
-                }
-                else {
-                    // Для обратного ребра
-                    for (auto& pair2 : graph) {
-                        bool found = false;
-                        for (ResidualEdge* re2 : residualGraph[pair2.second]) {
-                            if (re2 == re->reverse) {
-                                v = pair2.second;
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (found) break;
-                    }
-                }
-
-                if (v && re->capacity > 0 && level[v] == -1) {
-                    level[v] = level[u] + 1;
-                    q.push(v);
+            for (const ResidualEdge& re : graph[u]) {
+                if (re.capacity > 0 && level[re.to] == -1) {
+                    level[re.to] = level[u] + 1;
+                    q.push(re.to);
                 }
             }
         }
 
-        return level[sink] != -1;
-        };
+        return level[sinkId] != -1;
+    };
 
     // 3. DFS для поиска блокирующего потока
-    std::function<int(Node*, int)> dfs = [&](Node* u, int flow) -> int {
-        if (u == sink) {
+    std::function<int(int, int)> dfs = [&](int u, int flow) -> int {
+        if (u == sinkId) {
             return flow;
         }
 
-        for (int& i = ptr[u]; i < residualGraph[u].size(); ++i) {
-            ResidualEdge* re = residualGraph[u][i];
+        for (int& i = ptr[u]; i < graph[u].size(); ++i) {
+            ResidualEdge& re = graph[u][i];
 
-            Node* v = nullptr;
-            if (re->originalEdge) {
-                v = re->originalEdge->adjacentNode;
-            }
-            else {
-                for (auto& pair2 : graph) {
-                    bool found = false;
-                    for (ResidualEdge* re2 : residualGraph[pair2.second]) {
-                        if (re2 == re->reverse) {
-                            v = pair2.second;
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (found) break;
-                }
-            }
-
-            if (v && level[v] == level[u] + 1 && re->capacity > 0) {
-                int pushed = dfs(v, std::min(flow, re->capacity));
+            if (level[re.to] == level[u] + 1 && re.capacity > 0) {
+                int pushed = dfs(re.to, std::min(flow, re.capacity));
                 if (pushed > 0) {
-                    re->capacity -= pushed;
-                    re->reverse->capacity += pushed;
+                    re.capacity -= pushed;
+                    graph[re.to][re.rev].capacity += pushed;
                     return pushed;
                 }
             }
         }
 
         return 0;
-        };
+    };
 
     // 4. Основной цикл алгоритма Диница
     while (bfs()) {
         // Сбрасываем указатели
         for (auto& pair : graph) {
-            ptr[pair.second] = 0;
+            ptr[pair.first] = 0;
         }
 
         int pushed;
-        while ((pushed = dfs(source, INT_MAX)) > 0) {
+        while ((pushed = dfs(sourceId, INT_MAX)) > 0) {
             maxFlow += pushed;
-        }
-    }
-
-    // 5. Очищаем память
-    for (auto& pair : residualGraph) {
-        for (ResidualEdge* re : pair.second) {
-            delete re;
         }
     }
 
@@ -233,313 +136,192 @@ int dinic(std::unordered_map<int, Node*>& graph, int sourceId, int sinkId) {
     return maxFlow;
 }
 
+// Вспомогательная функция для добавления ребра в граф
+void addEdge(std::unordered_map<int, std::vector<ResidualEdge>>& graph, 
+             int from, int to, int capacity) {
+    // Прямое ребро
+    graph[from].push_back(ResidualEdge(capacity, to, graph[to].size()));
+    // Обратное ребро
+    graph[to].push_back(ResidualEdge(0, from, graph[from].size() - 1));
+}
 
 // 1. ПУСТОЙ ГРАФ (без ребер)
-void createEmptyGraph(std::unordered_map<int, Node*>& graph) {
+void createEmptyGraph(std::unordered_map<int, std::vector<ResidualEdge>>& graph) {
     for (int i = 1; i <= 3; i++) {
-        graph[i] = new Node(i);
+        graph[i] = std::vector<ResidualEdge>();
     }
 }
 
 // 2. ГРАФ С 3 ВЕРШИНАМИ
-void createGraph3Vertices(std::unordered_map<int, Node*>& graph) {
+void createGraph3Vertices(std::unordered_map<int, std::vector<ResidualEdge>>& graph) {
     for (int i = 1; i <= 3; i++) {
-        graph[i] = new Node(i);
+        graph[i] = std::vector<ResidualEdge>();
     }
 
-    graph[1]->edges.push_back(new Edge(10, graph[2]));
-    graph[2]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(5, graph[3]));
-    graph[3]->parents[graph[2]] = graph[2]->edges.back();
+    addEdge(graph, 1, 2, 10);
+    addEdge(graph, 2, 3, 5);
 }
 
 // 3. ТЕСТОВЫЙ ГРАФ ИЗ ЗАДАНИЯ
-void createTestGraph(std::unordered_map<int, Node*>& graph) {
+void createTestGraph(std::unordered_map<int, std::vector<ResidualEdge>>& graph) {
     for (int i = 1; i <= 5; i++) {
-        graph[i] = new Node(i);
+        graph[i] = std::vector<ResidualEdge>();
     }
 
-    graph[1]->edges.push_back(new Edge(40, graph[3]));
-    graph[3]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[1]->edges.push_back(new Edge(30, graph[2]));
-    graph[2]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[1]->edges.push_back(new Edge(20, graph[4]));
-    graph[4]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(50, graph[3]));
-    graph[3]->parents[graph[2]] = graph[2]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(20, graph[4]));
-    graph[4]->parents[graph[3]] = graph[3]->edges.back();
-
-    graph[4]->edges.push_back(new Edge(30, graph[5]));
-    graph[5]->parents[graph[4]] = graph[4]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(30, graph[5]));
-    graph[5]->parents[graph[3]] = graph[3]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(40, graph[5]));
-    graph[5]->parents[graph[2]] = graph[2]->edges.back();
+    addEdge(graph, 1, 3, 40);
+    addEdge(graph, 1, 2, 30);
+    addEdge(graph, 1, 4, 20);
+    addEdge(graph, 2, 3, 50);
+    addEdge(graph, 3, 4, 20);
+    addEdge(graph, 4, 5, 30);
+    addEdge(graph, 3, 5, 30);
+    addEdge(graph, 2, 5, 40);
 }
 
 // 4. ГРАФ С 6 ВЕРШИНАМИ (классический пример)
-void createGraph6Vertices(std::unordered_map<int, Node*>& graph) {
+void createGraph6Vertices(std::unordered_map<int, std::vector<ResidualEdge>>& graph) {
     for (int i = 1; i <= 6; i++) {
-        graph[i] = new Node(i);
+        graph[i] = std::vector<ResidualEdge>();
     }
 
-    graph[1]->edges.push_back(new Edge(16, graph[2]));
-    graph[2]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[1]->edges.push_back(new Edge(13, graph[3]));
-    graph[3]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(12, graph[3]));
-    graph[3]->parents[graph[2]] = graph[2]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(10, graph[4]));
-    graph[4]->parents[graph[2]] = graph[2]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(9, graph[2]));
-    graph[2]->parents[graph[3]] = graph[3]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(14, graph[5]));
-    graph[5]->parents[graph[3]] = graph[3]->edges.back();
-
-    graph[4]->edges.push_back(new Edge(7, graph[5]));
-    graph[5]->parents[graph[4]] = graph[4]->edges.back();
-
-    graph[4]->edges.push_back(new Edge(4, graph[6]));
-    graph[6]->parents[graph[4]] = graph[4]->edges.back();
-
-    graph[5]->edges.push_back(new Edge(20, graph[6]));
-    graph[6]->parents[graph[5]] = graph[5]->edges.back();
+    addEdge(graph, 1, 2, 16);
+    addEdge(graph, 1, 3, 13);
+    addEdge(graph, 2, 3, 12);
+    addEdge(graph, 2, 4, 10);
+    addEdge(graph, 3, 2, 9);
+    addEdge(graph, 3, 5, 14);
+    addEdge(graph, 4, 5, 7);
+    addEdge(graph, 4, 6, 4);
+    addEdge(graph, 5, 6, 20);
 }
 
 // 5. ГРАФ С 10 ВЕРШИНАМИ
-void createGraph10Vertices(std::unordered_map<int, Node*>& graph) {
+void createGraph10Vertices(std::unordered_map<int, std::vector<ResidualEdge>>& graph) {
     for (int i = 1; i <= 10; i++) {
-        graph[i] = new Node(i);
+        graph[i] = std::vector<ResidualEdge>();
     }
 
-    graph[1]->edges.push_back(new Edge(20, graph[2]));
-    graph[2]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[1]->edges.push_back(new Edge(15, graph[3]));
-    graph[3]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[1]->edges.push_back(new Edge(10, graph[4]));
-    graph[4]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(25, graph[5]));
-    graph[5]->parents[graph[2]] = graph[2]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(10, graph[5]));
-    graph[5]->parents[graph[3]] = graph[3]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(15, graph[6]));
-    graph[6]->parents[graph[3]] = graph[3]->edges.back();
-
-    graph[4]->edges.push_back(new Edge(20, graph[6]));
-    graph[6]->parents[graph[4]] = graph[4]->edges.back();
-
-    graph[5]->edges.push_back(new Edge(15, graph[7]));
-    graph[7]->parents[graph[5]] = graph[5]->edges.back();
-
-    graph[5]->edges.push_back(new Edge(10, graph[8]));
-    graph[8]->parents[graph[5]] = graph[5]->edges.back();
-
-    graph[6]->edges.push_back(new Edge(20, graph[8]));
-    graph[8]->parents[graph[6]] = graph[6]->edges.back();
-
-    graph[6]->edges.push_back(new Edge(5, graph[9]));
-    graph[9]->parents[graph[6]] = graph[6]->edges.back();
-
-    graph[7]->edges.push_back(new Edge(30, graph[10]));
-    graph[10]->parents[graph[7]] = graph[7]->edges.back();
-
-    graph[8]->edges.push_back(new Edge(20, graph[10]));
-    graph[10]->parents[graph[8]] = graph[8]->edges.back();
-
-    graph[9]->edges.push_back(new Edge(10, graph[10]));
-    graph[10]->parents[graph[9]] = graph[9]->edges.back();
+    addEdge(graph, 1, 2, 20);
+    addEdge(graph, 1, 3, 15);
+    addEdge(graph, 1, 4, 10);
+    addEdge(graph, 2, 5, 25);
+    addEdge(graph, 3, 5, 10);
+    addEdge(graph, 3, 6, 15);
+    addEdge(graph, 4, 6, 20);
+    addEdge(graph, 5, 7, 15);
+    addEdge(graph, 5, 8, 10);
+    addEdge(graph, 6, 8, 20);
+    addEdge(graph, 6, 9, 5);
+    addEdge(graph, 7, 10, 30);
+    addEdge(graph, 8, 10, 20);
+    addEdge(graph, 9, 10, 10);
 }
 
 // 6. ГРАФ С 15 ВЕРШИНАМИ
-void createGraph15Vertices(std::unordered_map<int, Node*>& graph) {
+void createGraph15Vertices(std::unordered_map<int, std::vector<ResidualEdge>>& graph) {
     for (int i = 1; i <= 15; i++) {
-        graph[i] = new Node(i);
+        graph[i] = std::vector<ResidualEdge>();
     }
 
-    graph[1]->edges.push_back(new Edge(50, graph[2]));
-    graph[2]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[1]->edges.push_back(new Edge(40, graph[3]));
-    graph[3]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[1]->edges.push_back(new Edge(30, graph[4]));
-    graph[4]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[1]->edges.push_back(new Edge(20, graph[5]));
-    graph[5]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(15, graph[6]));
-    graph[6]->parents[graph[2]] = graph[2]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(10, graph[7]));
-    graph[7]->parents[graph[2]] = graph[2]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(20, graph[7]));
-    graph[7]->parents[graph[3]] = graph[3]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(15, graph[8]));
-    graph[8]->parents[graph[3]] = graph[3]->edges.back();
-
-    graph[4]->edges.push_back(new Edge(25, graph[8]));
-    graph[8]->parents[graph[4]] = graph[4]->edges.back();
-
-    graph[4]->edges.push_back(new Edge(10, graph[9]));
-    graph[9]->parents[graph[4]] = graph[4]->edges.back();
-
-    graph[5]->edges.push_back(new Edge(30, graph[9]));
-    graph[9]->parents[graph[5]] = graph[5]->edges.back();
-
-    graph[5]->edges.push_back(new Edge(5, graph[10]));
-    graph[10]->parents[graph[5]] = graph[5]->edges.back();
-
-    graph[6]->edges.push_back(new Edge(40, graph[11]));
-    graph[11]->parents[graph[6]] = graph[6]->edges.back();
-
-    graph[7]->edges.push_back(new Edge(20, graph[11]));
-    graph[11]->parents[graph[7]] = graph[7]->edges.back();
-
-    graph[7]->edges.push_back(new Edge(15, graph[12]));
-    graph[12]->parents[graph[7]] = graph[7]->edges.back();
-
-    graph[8]->edges.push_back(new Edge(25, graph[12]));
-    graph[12]->parents[graph[8]] = graph[8]->edges.back();
-
-    graph[8]->edges.push_back(new Edge(10, graph[13]));
-    graph[13]->parents[graph[8]] = graph[8]->edges.back();
-
-    graph[9]->edges.push_back(new Edge(30, graph[13]));
-    graph[13]->parents[graph[9]] = graph[9]->edges.back();
-
-    graph[9]->edges.push_back(new Edge(5, graph[14]));
-    graph[14]->parents[graph[9]] = graph[9]->edges.back();
-
-    graph[10]->edges.push_back(new Edge(35, graph[14]));
-    graph[14]->parents[graph[10]] = graph[10]->edges.back();
-
-    graph[11]->edges.push_back(new Edge(50, graph[15]));
-    graph[15]->parents[graph[11]] = graph[11]->edges.back();
-
-    graph[12]->edges.push_back(new Edge(45, graph[15]));
-    graph[15]->parents[graph[12]] = graph[12]->edges.back();
-
-    graph[13]->edges.push_back(new Edge(35, graph[15]));
-    graph[15]->parents[graph[13]] = graph[13]->edges.back();
-
-    graph[14]->edges.push_back(new Edge(25, graph[15]));
-    graph[15]->parents[graph[14]] = graph[14]->edges.back();
-
-    graph[12]->edges.push_back(new Edge(5, graph[8]));
-    graph[8]->parents[graph[12]] = graph[12]->edges.back();
-
-    graph[14]->edges.push_back(new Edge(3, graph[10]));
-    graph[10]->parents[graph[14]] = graph[14]->edges.back();
+    addEdge(graph, 1, 2, 50);
+    addEdge(graph, 1, 3, 40);
+    addEdge(graph, 1, 4, 30);
+    addEdge(graph, 1, 5, 20);
+    addEdge(graph, 2, 6, 15);
+    addEdge(graph, 2, 7, 10);
+    addEdge(graph, 3, 7, 20);
+    addEdge(graph, 3, 8, 15);
+    addEdge(graph, 4, 8, 25);
+    addEdge(graph, 4, 9, 10);
+    addEdge(graph, 5, 9, 30);
+    addEdge(graph, 5, 10, 5);
+    addEdge(graph, 6, 11, 40);
+    addEdge(graph, 7, 11, 20);
+    addEdge(graph, 7, 12, 15);
+    addEdge(graph, 8, 12, 25);
+    addEdge(graph, 8, 13, 10);
+    addEdge(graph, 9, 13, 30);
+    addEdge(graph, 9, 14, 5);
+    addEdge(graph, 10, 14, 35);
+    addEdge(graph, 11, 15, 50);
+    addEdge(graph, 12, 15, 45);
+    addEdge(graph, 13, 15, 35);
+    addEdge(graph, 14, 15, 25);
+    addEdge(graph, 12, 8, 5);
+    addEdge(graph, 14, 10, 3);
 }
 
 // 7. ГРАФ С НУЛЕВОЙ ПРОПУСКНОЙ СПОСОБНОСТЬЮ
-void createZeroCapacityGraph(std::unordered_map<int, Node*>& graph) {
+void createZeroCapacityGraph(std::unordered_map<int, std::vector<ResidualEdge>>& graph) {
     for (int i = 1; i <= 4; i++) {
-        graph[i] = new Node(i);
+        graph[i] = std::vector<ResidualEdge>();
     }
 
-    graph[1]->edges.push_back(new Edge(0, graph[2]));
-    graph[2]->parents[graph[1]] = graph[1]->edges.back();
-
-    graph[2]->edges.push_back(new Edge(0, graph[3]));
-    graph[3]->parents[graph[2]] = graph[2]->edges.back();
-
-    graph[3]->edges.push_back(new Edge(0, graph[4]));
-    graph[4]->parents[graph[3]] = graph[3]->edges.back();
-}
-
-// Функция для очистки графа
-void cleanupGraph(std::unordered_map<int, Node*>& graph) {
-    for (auto& pair : graph) {
-        for (Edge* edge : pair.second->edges) {
-            delete edge;
-        }
-        delete pair.second;
-    }
-    graph.clear();
+    addEdge(graph, 1, 2, 0);
+    addEdge(graph, 2, 3, 0);
+    addEdge(graph, 3, 4, 0);
 }
 
 // ============ ОСНОВНАЯ ПРОГРАММА С ВСЕМИ ТЕСТАМИ ============
 int main() {
     setlocale(LC_ALL, "");
-    std::unordered_map<int, Node*> graph;
+    std::unordered_map<int, std::vector<ResidualEdge>> graph;
 
     std::cout << "============================================================================" << std::endl;
     std::cout << "ТЕСТ: ГРАФ С 3 ВЕРШИНАМИ" << std::endl;
     std::cout << "============================================================================" << std::endl;
     createGraph3Vertices(graph);
     dinic(graph, 1, 3);
-    cleanupGraph(graph);
+    graph.clear();
 
     std::cout << "============================================================================" << std::endl;
     std::cout << "ТЕСТ: ГРАФ С 6 ВЕРШИНАМИ (классический)" << std::endl;
     std::cout << "============================================================================" << std::endl;
     createGraph6Vertices(graph);
     dinic(graph, 1, 6);
-    cleanupGraph(graph);
+    graph.clear();
 
     std::cout << "============================================================================" << std::endl;
     std::cout << "ТЕСТ: ГРАФ С 10 ВЕРШИНАМИ" << std::endl;
     std::cout << "============================================================================" << std::endl;
     createGraph10Vertices(graph);
     dinic(graph, 1, 10);
-    cleanupGraph(graph);
+    graph.clear();
 
     std::cout << "============================================================================" << std::endl;
     std::cout << "ТЕСТ: ГРАФ С 15 ВЕРШИНАМИ" << std::endl;
     std::cout << "============================================================================" << std::endl;
     createGraph15Vertices(graph);
     dinic(graph, 1, 15);
-    cleanupGraph(graph);
+    graph.clear();
 
     std::cout << "============================================================================" << std::endl;
     std::cout << "ТЕСТ: ПУСТОЙ ГРАФ (без ребер)" << std::endl;
     std::cout << "============================================================================" << std::endl;
     createEmptyGraph(graph);
     dinic(graph, 1, 3);
-    cleanupGraph(graph);
+    graph.clear();
 
     std::cout << "============================================================================" << std::endl;
     std::cout << "ТЕСТ: ГРАФ С НУЛЕВОЙ ПРОПУСКНОЙ СПОСОБНОСТЬЮ" << std::endl;
     std::cout << "============================================================================" << std::endl;
     createZeroCapacityGraph(graph);
     dinic(graph, 1, 4);
-    cleanupGraph(graph);
+    graph.clear();
 
     std::cout << "============================================================================" << std::endl;
     std::cout << "ТЕСТ: ИСТОЧНИК И СТОК СОВПАДАЮТ" << std::endl;
     std::cout << "============================================================================" << std::endl;
     createGraph6Vertices(graph);
     dinic(graph, 1, 1);
-    cleanupGraph(graph);
+    graph.clear();
 
     std::cout << "============================================================================" << std::endl;
     std::cout << "ТЕСТ: НЕСУЩЕСТВУЮЩАЯ ВЕРШИНА" << std::endl;
     std::cout << "============================================================================" << std::endl;
     createGraph6Vertices(graph);
     dinic(graph, 1, 100);
-    cleanupGraph(graph);
+    graph.clear();
 
     return 0;
 }
