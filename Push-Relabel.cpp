@@ -1,370 +1,143 @@
+#include "Push-Relabel.h"
 #include <iostream>
 #include <unordered_map>
 #include <vector>
-#include <algorithm>
 #include <queue>
 #include <climits>
-#include <string>
+#include <algorithm>
 
-class Node;
-class Edge;
+using namespace std;
 
-// --- YOUR STRUCTURES (UNCHANGED) ---
-
-struct Node 
-{
-    int id;
-    std::vector<Edge*> edges;
-    std::unordered_map<Node*, Edge*> parents;
-
-    Node(int nodeId) : id(nodeId) {}
-};
-
-struct Edge 
-{
-    int weight;
-    Node* adjacentNode;
-
-    Edge(int w, Node* node) : weight(w), adjacentNode(node) {}
-};
-
-// --- YOUR GRAPH CLASS ---
-
-class Graph
-{
-private:
-    std::vector<Node*> nodes;
-
-    // Algorithm data
-    std::unordered_map<Edge*, Edge*> reverseEdges;
-    std::unordered_map<Edge*, int> edgeFlow;
-    std::unordered_map<int, int> heights; 
-    std::unordered_map<int, int> excess;  
-
-    void push(Node* u, Edge* edge) {
-        int capacity = edge->weight;
-        int flow = edgeFlow[edge];
-        int d = std::min(excess[u->id], capacity - flow);
-
-        edgeFlow[edge] += d;
-        Edge* rev = reverseEdges[edge];
-        edgeFlow[rev] -= d;
-
-        excess[u->id] -= d;
-        excess[edge->adjacentNode->id] += d;
-    }
-
-    void relabel(Node* u) {
-        int minHeight = INT_MAX;
-        for (Edge* edge : u->edges) {
-            int capacity = edge->weight;
-            int flow = edgeFlow[edge];
-            if (capacity - flow > 0) {
-                int neighborId = edge->adjacentNode->id;
-                if (heights.find(neighborId) == heights.end()) heights[neighborId] = 0;
-                minHeight = std::min(minHeight, heights[neighborId]);
-            }
-        }
-        if (minHeight != INT_MAX) {
-            heights[u->id] = minHeight + 1;
-        }
-    }
-
-public:
-    ~Graph() {
-        for (Node* node : nodes) {
-            for (Edge* edge : node->edges) delete edge;
-            delete node;
-        }
-    }
-
-    Node* addNode(int id) {
-        Node* newNode = new Node(id);
-        nodes.push_back(newNode);
-        return newNode;
-    }
-
-    void addEdge(Node* from, Node* to, int weight) {
-        if (!from || !to) return;
-
-        Edge* forward = new Edge(weight, to);
-        Edge* backward = new Edge(0, from); 
-
-        reverseEdges[forward] = backward;
-        reverseEdges[backward] = forward;
-
-        edgeFlow[forward] = 0;
-        edgeFlow[backward] = 0;
-
-        from->edges.push_back(forward);
-        to->parents[from] = forward; 
-        to->edges.push_back(backward);
-        from->parents[to] = backward;
-    }
-
-    // Helper for stats
-    void getGraphInfo(int& outVertices, int& outEdges) {
-        outVertices = nodes.size();
-        outEdges = 0;
-        for(Node* n : nodes) {
-            for(Edge* e : n->edges) {
-                // Count only forward edges (original weight >= 0 and reverse weight 0)
-                if (e->weight >= 0 && reverseEdges[e]->weight == 0) { 
-                     outEdges++;
-                }
-            }
-        }
-    }
-
-    void getMaxFlow(Node* source, Node* sink) {
-        // 1. Validation
-        if (nodes.empty()) {
-            std::cout << "Error: The graph is empty." << std::endl;
-            return;
-        }
-        if (source == nullptr || sink == nullptr) {
-            std::cout << "Error: Invalid Source or Sink pointer." << std::endl;
-            return;
-        }
-        if (source == sink) {
-            std::cout << "Error: Source equals Sink." << std::endl;
-            return;
-        }
-
-        // Reset state
-        heights.clear();
-        excess.clear();
-        for (auto& pair : edgeFlow) pair.second = 0;
-
-        heights[source->id] = nodes.size(); 
-
-        // Preflow
-        for (Edge* edge : source->edges) {
-            if (edge->weight > 0) { 
-                int d = edge->weight;
-                edgeFlow[edge] += d;
-                Edge* rev = reverseEdges[edge];
-                edgeFlow[rev] -= d;
-                excess[source->id] -= d;
-                excess[edge->adjacentNode->id] += d;
-            }
-        }
-
-        std::queue<Node*> activeNodes;
-        for (Node* node : nodes) {
-            if (node != source && node != sink && excess[node->id] > 0) {
-                activeNodes.push(node);
-            }
-        }
-
-        while (!activeNodes.empty()) {
-            Node* u = activeNodes.front();
-            bool pushed = false;
-
-            for (Edge* edge : u->edges) {
-                int cap = edge->weight;
-                int flow = edgeFlow[edge];
-                Node* v = edge->adjacentNode;
-
-                if (cap - flow > 0 && heights[u->id] == heights[v->id] + 1) {
-                    push(u, edge);
-                    if (v != source && v != sink && excess[v->id] > 0) {
-                        activeNodes.push(v);
-                    }
-                    pushed = true;
-                    if (excess[u->id] == 0) break;
-                }
-            }
-
-            if (excess[u->id] > 0) {
-                if (!pushed) relabel(u);
-                activeNodes.pop();
-                activeNodes.push(u);
-            } else {
-                activeNodes.pop();
-            }
-        }
-
-        std::cout << "Algorithm Result (Max Flow): " << excess[sink->id] << std::endl;
-    }
-};
-
-// ============ TEST HELPERS ============
-
-void printHeader(const std::string& name, Graph& g, int sId, int tId) {
-    int v, e;
-    g.getGraphInfo(v, e);
-    
-    std::cout << "\n========================================" << std::endl;
-    std::cout << "TEST: " << name << std::endl;
-    std::cout << "========================================" << std::endl;
-    std::cout << "\nGraph Characteristics:" << std::endl;
-    std::cout << "  Vertices: " << v << std::endl;
-    std::cout << "  Edges: " << e << std::endl; 
-    std::cout << "Source: " << sId << ", Sink: " << tId << std::endl;
+// Вспомогательная функция для добавления ребра в остаточную сеть
+void addResidualEdge(unordered_map<int, unordered_map<int, int>>& residual,
+    int from, int to, int capacity) {
+    residual[from][to] = capacity;
 }
 
-int main() {
-    // Locale is not needed for English output, removed.
-
-    std::cout << "TESTING ALGORITHM (PUSH-RELABEL)" << std::endl;
-    std::cout << "========================================" << std::endl;
-
-    // Test 1: Empty Graph
-    {
-        Graph gEmpty;
-        Node* s = gEmpty.addNode(1);
-        gEmpty.addNode(2);
-        Node* t = gEmpty.addNode(3);
-
-        printHeader("EMPTY GRAPH (no edges)", gEmpty, 1, 3);
-        gEmpty.getMaxFlow(s, t);
+int pushRelabel(unordered_map<int, Node*>& graph, int sourceId, int sinkId) {
+    // Проверка входных данных
+    if (graph.empty()) {
+        return 0;
     }
 
-    // Test 2: Very Small Graph
-    {
-        Graph g;
-        std::unordered_map<int, Node*> n;
-        for(int i=1; i<=3; ++i) n[i] = g.addNode(i);
-
-        g.addEdge(n[1], n[2], 10);
-        g.addEdge(n[2], n[3], 5);
-
-        printHeader("VERY SMALL GRAPH (3 vertices)", g, 1, 3);
-        g.getMaxFlow(n[1], n[3]);
+    if (graph.find(sourceId) == graph.end()) {
+        return 0;
     }
 
-    // Test 3: Zero Capacity Graph
-    {
-        Graph g;
-        std::unordered_map<int, Node*> n;
-        for(int i=1; i<=4; ++i) n[i] = g.addNode(i);
-
-        g.addEdge(n[1], n[2], 0);
-        g.addEdge(n[2], n[3], 0);
-        g.addEdge(n[3], n[4], 0);
-
-        printHeader("ZERO CAPACITY GRAPH", g, 1, 4);
-        g.getMaxFlow(n[1], n[4]);
+    if (graph.find(sinkId) == graph.end()) {
+        return 0;
     }
 
-    // Test 4: Small Graph (Classic Example)
-    {
-        Graph g;
-        std::unordered_map<int, Node*> n;
-        for(int i=1; i<=6; ++i) n[i] = g.addNode(i);
-
-        g.addEdge(n[1], n[2], 16);
-        g.addEdge(n[1], n[3], 13);
-        g.addEdge(n[2], n[3], 12); 
-        g.addEdge(n[2], n[4], 10); 
-        g.addEdge(n[3], n[2], 9);
-        g.addEdge(n[3], n[5], 14);
-        g.addEdge(n[4], n[5], 7);  
-        g.addEdge(n[4], n[6], 4);
-        g.addEdge(n[5], n[6], 20);
-
-        printHeader("SMALL GRAPH (6 vertices, classic)", g, 1, 6);
-        g.getMaxFlow(n[1], n[6]); // Expected: 23
+    if (sourceId == sinkId) {
+        return 0;
     }
 
-    // Test 5: Medium Graph
-    {
-        Graph g;
-        std::unordered_map<int, Node*> n;
-        for(int i=1; i<=10; ++i) n[i] = g.addNode(i);
+    int n = graph.size();
 
-        g.addEdge(n[1], n[2], 20);
-        g.addEdge(n[1], n[3], 15);
-        g.addEdge(n[1], n[4], 10);
-        g.addEdge(n[2], n[5], 25);
-        g.addEdge(n[3], n[5], 10);
-        g.addEdge(n[3], n[6], 15);
-        g.addEdge(n[4], n[6], 20);
-        g.addEdge(n[5], n[7], 15);
-        g.addEdge(n[5], n[8], 10);
-        g.addEdge(n[6], n[8], 20);
-        g.addEdge(n[6], n[9], 5);
-        g.addEdge(n[7], n[10], 30);
-        g.addEdge(n[8], n[10], 20);
-        g.addEdge(n[9], n[10], 10);
+    // Создаем остаточную сеть
+    unordered_map<int, unordered_map<int, int>> residual;
 
-        printHeader("MEDIUM GRAPH (10 vertices)", g, 1, 10);
-        g.getMaxFlow(n[1], n[10]);
+    // Инициализация остаточных пропускных способностей
+    for (auto& pair : graph) {
+        int u = pair.first;
+        Node* uNode = pair.second;
+
+        for (Edge* edge : uNode->edges) {
+            int v = edge->adjacentNode->id;
+            addResidualEdge(residual, u, v, edge->weight);
+            // Инициализируем обратное ребро если еще не существует
+            if (residual[v].find(u) == residual[v].end()) {
+                addResidualEdge(residual, v, u, 0);
+            }
+        }
     }
 
-    // Test 6: Large Graph
-    {
-        Graph g;
-        std::unordered_map<int, Node*> n;
-        for(int i=1; i<=15; ++i) n[i] = g.addNode(i);
+    // Высоты вершин
+    unordered_map<int, int> height;
 
-        g.addEdge(n[1], n[2], 50);
-        g.addEdge(n[1], n[3], 40);
-        g.addEdge(n[1], n[4], 30);
-        g.addEdge(n[1], n[5], 20);
+    // Избыточный поток в вершинах
+    unordered_map<int, int> excess;
 
-        g.addEdge(n[2], n[6], 15);
-        g.addEdge(n[2], n[7], 10);
+    // Инициализация высот
+    height[sourceId] = n;
 
-        g.addEdge(n[3], n[7], 20);
-        g.addEdge(n[3], n[8], 15);
-
-        g.addEdge(n[4], n[8], 25);
-        g.addEdge(n[4], n[9], 10);
-
-        g.addEdge(n[5], n[9], 30);
-        g.addEdge(n[5], n[10], 5);
-
-        g.addEdge(n[6], n[11], 40);
-        g.addEdge(n[7], n[11], 20);
-        g.addEdge(n[7], n[12], 15);
-
-        g.addEdge(n[8], n[12], 25);
-        g.addEdge(n[8], n[13], 10);
-
-        g.addEdge(n[9], n[13], 30);
-        g.addEdge(n[9], n[14], 5);
-
-        g.addEdge(n[10], n[14], 35);
-
-        g.addEdge(n[11], n[15], 50);
-        g.addEdge(n[12], n[15], 45);
-        g.addEdge(n[13], n[15], 35);
-        g.addEdge(n[14], n[15], 25);
-        
-        g.addEdge(n[12], n[8], 5);
-        g.addEdge(n[14], n[10], 3);
-
-        printHeader("LARGE GRAPH (15 vertices)", g, 1, 15);
-        g.getMaxFlow(n[1], n[15]);
+    // Инициализация избыточного потока
+    for (auto& edge : residual[sourceId]) {
+        int v = edge.first;
+        int capacity = edge.second;
+        if (capacity > 0) {
+            residual[sourceId][v] = 0;
+            residual[v][sourceId] += capacity;
+            excess[v] = capacity;
+            excess[sourceId] -= capacity;
+        }
     }
 
-    // Test 7: Source equals Sink
-    {
-        Graph g;
-        Node* s = g.addNode(1);
-        Node* t = g.addNode(2);
-        g.addEdge(s, t, 10);
-
-        printHeader("SOURCE AND SINK ARE THE SAME", g, 1, 1);
-        g.getMaxFlow(s, s);
+    // Очередь активных вершин
+    queue<int> activeVertices;
+    for (auto& pair : graph) {
+        int u = pair.first;
+        if (u != sourceId && u != sinkId && excess[u] > 0) {
+            activeVertices.push(u);
+        }
     }
 
-    // Test 8: Invalid Vertex
-    {
-        Graph g;
-        Node* s = g.addNode(1);
-        Node* t = g.addNode(2);
-        g.addEdge(s, t, 10);
+    // Основной цикл алгоритма
+    while (!activeVertices.empty()) {
+        int u = activeVertices.front();
+        activeVertices.pop();
 
-        printHeader("NON-EXISTENT VERTEX (nullptr)", g, 1, 100);
-        g.getMaxFlow(s, nullptr);
+        // Пытаемся протолкнуть поток
+        bool pushed = false;
+
+        for (auto& edge : residual[u]) {
+            int v = edge.first;
+            int capacity = edge.second;
+
+            // Можем протолкнуть только если есть остаточная пропускная способность
+            // и высота u больше высоты v на 1
+            if (capacity > 0 && height[u] == height[v] + 1) {
+                int flow = min(excess[u], capacity);
+
+                residual[u][v] -= flow;
+                residual[v][u] += flow;
+
+                excess[u] -= flow;
+                excess[v] += flow;
+
+                if (v != sourceId && v != sinkId && excess[v] > 0) {
+                    activeVertices.push(v);
+                }
+
+                pushed = true;
+
+                if (excess[u] == 0) {
+                    break;
+                }
+            }
+        }
+
+        // Если не удалось протолкнуть, поднимаем вершину
+        if (!pushed && excess[u] > 0) {
+            // Находим минимальную высоту среди соседей с положительной остаточной пропускной способностью
+            int minHeight = INT_MAX;
+            for (auto& edge : residual[u]) {
+                int v = edge.first;
+                int capacity = edge.second;
+                if (capacity > 0) {
+                    minHeight = min(minHeight, height[v]);
+                }
+            }
+
+            if (minHeight != INT_MAX) {
+                height[u] = minHeight + 1;
+            }
+
+            // Возвращаем вершину в очередь
+            activeVertices.push(u);
+        }
     }
 
-    std::cout << "\n========================================" << std::endl;
-    std::cout << "TESTING COMPLETED" << std::endl;
-    std::cout << "========================================" << std::endl;
-
-    return 0;
+    // Максимальный поток равен избыточному потоку в стоке
+    return excess[sinkId];
 }
