@@ -7,6 +7,7 @@
 #include <climits>
 #include <functional>
 
+
 using namespace std;
 
 // Вспомогательная структура для ребра в алгоритме Диница
